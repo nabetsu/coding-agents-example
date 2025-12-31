@@ -74,7 +74,20 @@ def build_toolsets() -> list[MCPServerStdio]:
             ).strip(),
         },
     )
-    return [filesystem_server, code_reasoning]
+
+    run_python = MCPServerStdio(
+        "uvx",
+        args=["mcp-run-python@latest", "stdio"],
+        timeout=10,
+    )
+
+    context7 = MCPServerStdio(
+        command="npx", args=["-y", "@upstash/context7-mcp"], tool_prefix="context"
+    )
+
+    internet_search = MCPServerStdio(command="uvx", args=["duckduckgo-mcp-server"])
+
+    return [filesystem_server, code_reasoning, run_python, context7, internet_search]
 
 def build_agent(
     *,

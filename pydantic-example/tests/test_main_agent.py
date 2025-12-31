@@ -35,13 +35,14 @@ def test_build_toolsets_wires_server_config(monkeypatch):
     calls = []
 
     class FakeServer:
-        def __init__(self, command, args, env, tool_prefix=None):
+        def __init__(self, command, args, env=None, tool_prefix=None, timeout=None):
             calls.append(
                 {
                     "command": command,
                     "args": args,
-                    "env": env,
+                    "env": env or {},
                     "tool_prefix": tool_prefix,
+                    "timeout": timeout,
                 }
             )
 
@@ -52,7 +53,7 @@ def test_build_toolsets_wires_server_config(monkeypatch):
 
     toolsets = main.build_toolsets()
 
-    assert len(toolsets) == 2
+    assert len(toolsets) == 3
     assert calls[0]["command"] == "npx"
     assert calls[0]["args"] == [
         "-y",
@@ -67,6 +68,10 @@ def test_build_toolsets_wires_server_config(monkeypatch):
     assert calls[1]["env"]["LOG_LEVEL"] == "error"
     assert calls[1]["env"]["MCP_DEBUG"] == "false"
     assert "--require /tmp/patch.cjs" in calls[1]["env"]["NODE_OPTIONS"]
+
+    assert calls[2]["command"] == "uvx"
+    assert calls[2]["args"] == ["mcp-run-python@latest", "stdio"]
+    assert calls[2]["timeout"] == 10
 
 
 def test_build_agent_uses_defaults(monkeypatch):
