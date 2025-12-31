@@ -10,13 +10,33 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-openai_api_key = os.environ.get("OPENAI_API_KEY")
-
-model = OpenAIChatModel("gpt-4o", provider=OpenAIProvider(api_key=openai_api_key))
-
 instructions = """
-あなたはコードベースの保守と開発を担当する専門エージェントとして振る舞ってください。
+You are a specialised agent for maintaining and developing the XXXXXX codebase.
+
+## Development Guidelines:
+
+1. **Test Failures:**
+   - When tests fail, fix the implementation first, not the tests
+   - Tests represent expected behavior; implementation should conform to tests
+   - Only modify tests if they clearly don't match specifications
+
+2. **Code Changes:**
+   - Make the smallest possible changes to fix issues
+   - Focus on fixing the specific problem rather than rewriting large portions
+   - Add unit tests for all new functionality before implementing it
+
+3. **Best Practices:**
+   - Keep functions small with a single responsibility
+   - Implement proper error handling with appropriate exceptions
+   - Be mindful of configuration dependencies in tests
+
+Remember to examine test failure messages carefully to understand the root cause before making any changes.
 """
+
+def build_model(api_key: str | None = None) -> OpenAIChatModel:
+    if api_key is None:
+        api_key = os.environ.get("OPENAI_API_KEY")
+    return OpenAIChatModel("gpt-4o", provider=OpenAIProvider(api_key=api_key))
 
 def _make_code_reasoning_patch() -> str:
     patch_path = Path(tempfile.gettempdir()) / "code_reasoning_stdio_patch.cjs"
@@ -30,34 +50,46 @@ def _make_code_reasoning_patch() -> str:
         )
     return str(patch_path)
 
-filesystem_server = MCPServerStdio(
-    command="npx",
-    args=["-y", "@modelcontextprotocol/server-filesystem", os.getcwd()],
-    env={
-        **os.environ,
-        "LOG_LEVEL": "error",
-    },
-)
+def build_toolsets() -> list[MCPServerStdio]:
+    filesystem_server = MCPServerStdio(
+        command="npx",
+        args=["-y", "@modelcontextprotocol/server-filesystem", os.getcwd()],
+        env={
+            **os.environ,
+            "LOG_LEVEL": "error",
+        },
+    )
 
-code_reasoning = MCPServerStdio(
-    command="npx",
-    args=["-y", "@mettamatt/code-reasoning@latest"],
-    tool_prefix="code_reasoning",
-    env={
-        **os.environ,
-        "LOG_LEVEL": "error",  # ログレベルをerrorに設定してinfoログを抑制
-        "MCP_DEBUG": "false",  # MCPデバッグモードを無効化
-        "NODE_OPTIONS": (os.environ.get("NODE_OPTIONS", "").strip() + f" --require {_make_code_reasoning_patch()}").strip(),
-    },
-)
+    code_reasoning = MCPServerStdio(
+        command="npx",
+        args=["-y", "@mettamatt/code-reasoning@latest"],
+        tool_prefix="code_reasoning",
+        env={
+            **os.environ,
+            "LOG_LEVEL": "error",  # ログレベルをerrorに設定してinfoログを抑制
+            "MCP_DEBUG": "false",  # MCPデバッグモードを無効化
+            "NODE_OPTIONS": (
+                os.environ.get("NODE_OPTIONS", "").strip()
+                + f" --require {_make_code_reasoning_patch()}"
+            ).strip(),
+        },
+    )
+    return [filesystem_server, code_reasoning]
 
-agent = Agent(
-    instructions=instructions,
-    model=model,
-    toolsets=[filesystem_server, code_reasoning],
-)
+def build_agent(
+    *,
+    instructions_override: str | None = None,
+    model: OpenAIChatModel | None = None,
+    toolsets: list[MCPServerStdio] | None = None,
+) -> Agent:
+    return Agent(
+        instructions=instructions_override or instructions,
+        model=model or build_model(),
+        toolsets=toolsets or build_toolsets(),
+    )
 
 async def main():
+    agent = build_agent()
     async with agent:
         await agent.to_cli()
 
